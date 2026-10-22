@@ -14,9 +14,9 @@ from pidng.core import RAW2DNG, DNGTags, Tag
 
 from reedsolo import RSCodec
 from kyber_py_mod.ml_kem import ML_KEM_768
-from Cryptodome.Cipher import AES
-from Cryptodome.Random.random import getrandbits
-from Cryptodome.Random import get_random_bytes
+from Crypto.Cipher import AES
+from Crypto.Random.random import getrandbits
+from Crypto.Random import get_random_bytes
 from hashlib import sha3_512
 import bz2
 import struct
@@ -30,7 +30,7 @@ class PRG:
         self.seed = seed
         self.counter = 0
     def random(self):
-        digest = sha3_512(self.seed + self.counter.to_bytes(8)).digest()
+        digest = sha3_512(self.seed + self.counter.to_bytes(8, 'big')).digest()
         int_rep = struct.unpack('<Q', digest[:8])[0]
         self.counter  = self.counter + 1
         return int_rep / (2**64 - 1)
@@ -251,6 +251,7 @@ def save_dng(raw, path, filename):
 
 # ECC permutation. Takes time to precompute
 def load_eccperm(num_of_g_chunks, num_of_bits_per_g):
+    os.makedirs('perm', exist_ok=True)
     filename = 'perm/eccperm_'+str(num_of_g_chunks)+'_'+str(num_of_bits_per_g)+'.npy'
     if not os.path.exists(filename):
         ecc_perm = np.repeat(np.arange(num_of_g_chunks, dtype=np.int32), num_of_bits_per_g)
@@ -334,7 +335,7 @@ def endecrypt_aes(num_ecc_cw, mesecc_arr, aes_key, start=0):
             b_count = i & 15
             ecc_count = i >> 4
             cipher = AES.new(aes_key, AES.MODE_ECB) # single block AES for encrypting the counter
-            ctxt = cipher.encrypt(i.to_bytes(16)) # CTR mode. Due to random k, no need IV
+            ctxt = cipher.encrypt(i.to_bytes(16, 'big')) # CTR mode. Due to random k, no need IV
             for b in range(16):
                 b_ind = b_count << 4 | b
                 if b_ind == 255:
@@ -568,9 +569,9 @@ def stego_embedding(raw, s):
     print(f"G-embedding done in {elapsed} seconds")
     # Generate metadata
     if use_combined_meta:
-        metadata = filesize.to_bytes(4) + b'\1' + combined_meta_len.to_bytes(3) + b'\0'*3 + int(beta).to_bytes(1) + int(ell).to_bytes(1) + int(err_count).to_bytes(1) + int(failed_master @ np.pow(2, range(len(failed_master)))).to_bytes(2)
+        metadata = filesize.to_bytes(4, 'big') + b'\1' + combined_meta_len.to_bytes(3, 'big') + b'\0'*3 + int(beta).to_bytes(1, 'big') + int(ell).to_bytes(1, 'big') + int(err_count).to_bytes(1, 'big') + int(failed_master @ np.pow(2, range(len(failed_master)))).to_bytes(2, 'big')
     else:
-        metadata = filesize.to_bytes(4) + b'\0' + img_meta_len.to_bytes(3) + s_meta_len.to_bytes(3) + int(beta).to_bytes(1) + int(ell).to_bytes(1) + int(err_count).to_bytes(1) + int(failed_master @ np.pow(2, range(len(failed_master)))).to_bytes(2)
+        metadata = filesize.to_bytes(4, 'big') + b'\0' + img_meta_len.to_bytes(3, 'big') + s_meta_len.to_bytes(3, 'big') + int(beta).to_bytes(1, 'big') + int(ell).to_bytes(1, 'big') + int(err_count).to_bytes(1, 'big') + int(failed_master @ np.pow(2, range(len(failed_master)))).to_bytes(2, 'big')
     # Embed metadata and generate unavailable master chunks, i.e., only Kyber ctxt parts are still 0
     print("Embedding metadata...")
     begin = time.monotonic()
@@ -586,7 +587,7 @@ def stego_embedding(raw, s):
         if not failed_master[i]:
             # fill in metadata
             cipher = AES.new(aes_key, AES.MODE_ECB)
-            ctxt = cipher.encrypt((2**128-1-i).to_bytes(16))
+            ctxt = cipher.encrypt((2**128-1-i).to_bytes(16, 'big'))
             enc_metadata = np.empty((16,), dtype=np.uint8)
             for j in range(16):
                 enc_metadata[j] = metadata[j] ^ ctxt[j]
@@ -620,7 +621,7 @@ def stego_embedding(raw, s):
         pixel_loc = pixel_loc[:metadata_offset]
         temp_stego = np.empty((metadata_offset,), dtype=np.uint16)
         for j in range(1088): # kyber ctxt has 1088 bytes
-            prg = PRG(prg_seed+i.to_bytes(8)+j.to_bytes(8))
+            prg = PRG(prg_seed+i.to_bytes(8, 'big')+j.to_bytes(8, 'big'))
             sigma = np.diag(s_flat[pixel_loc[j*8:(j+1)*8]] * s_flat[pixel_loc[j*8:(j+1)*8]])
             temp_stego[j*8:(j+1)*8] = raw_flatten[pixel_loc[j*8:(j+1)*8]] + GadgetGaussian((clist[i][j] - g_vec @ raw_flatten[pixel_loc[j*8:(j+1)*8]]) % 256, sigma, 2, 8, 8, B1, B1inv, B1sq, prg)
         if np.any(temp_stego < 0) or np.any(temp_stego > 17204):
@@ -637,7 +638,7 @@ def stego_embedding(raw, s):
 def decrypt_metadata(enc_metadata, aes_key, id):
     metadata = np.empty((16,), dtype=np.uint8)
     cipher = AES.new(aes_key, AES.MODE_ECB)
-    ctxt = cipher.encrypt((2**128-1-id).to_bytes(16))
+    ctxt = cipher.encrypt((2**128-1-id).to_bytes(16, 'big'))
     for j in range(16):
         metadata[j] = enc_metadata[j] ^ ctxt[j]
     return bytes(metadata)
@@ -716,14 +717,14 @@ def cca_check(failed_master, img_meta, s_meta, master_loc, possible_master_count
             # Verify Kyber
             kyber_ctxt = b''
             for j in range(1088):
-                kyber_ctxt = kyber_ctxt + int((g_vec @ temp_stego[j*8:(j+1)*8])%256).to_bytes(1)
+                kyber_ctxt = kyber_ctxt + int((g_vec @ temp_stego[j*8:(j+1)*8])%256).to_bytes(1, 'big')
             if not ML_KEM_768.decaps_verify(dk, kyber_ctxt, fo_hash, i):
                 return False
             # G-embeeding check
             prg_seed = ML_KEM_768.decaps_hash(dk, kyber_ctxt, fo_hash)
             temp_stego_prime = np.empty((metadata_offset,), dtype=np.uint16)
             for j in range(1088): # kyber ctxt has 1088 bytes
-                prg = PRG(prg_seed+i.to_bytes(8)+j.to_bytes(8))
+                prg = PRG(prg_seed+i.to_bytes(8, 'big')+j.to_bytes(8, 'big'))
                 sigma = np.diag(s_meta[s_counter, j*8:(j+1)*8] * s_meta[s_counter, j*8:(j+1)*8])
                 try:
                     temp_stego_prime[j*8:(j+1)*8] = img_meta[s_counter, j*8:(j+1)*8] + GadgetGaussian((kyber_ctxt[j] - g_vec @ img_meta[s_counter, j*8:(j+1)*8]) % 256, sigma, 2, 8, 8, B1, B1inv, B1sq, prg)
@@ -765,7 +766,7 @@ def stego_extract(raw):
         # Extract Kyber ctxt
         kyber_ctxt = b''
         for j in range(1088):
-            kyber_ctxt = kyber_ctxt + int((g_vec @ temp_stego[j*8:(j+1)*8])%256).to_bytes(1)
+            kyber_ctxt = kyber_ctxt + int((g_vec @ temp_stego[j*8:(j+1)*8])%256).to_bytes(1, 'big')
         # Decapsulate AES key and extract metadata
         aes_key = ML_KEM_768.decaps_key(dk, kyber_ctxt)
         flag, metadata = metadata_check(temp_stego[metadata_offset:], aes_key, i)
