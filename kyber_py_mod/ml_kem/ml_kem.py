@@ -469,7 +469,7 @@ class ML_KEM:
         for id in range(dup):
             try:
                 # Embed the hash of stego here
-                c = self._k_pke_encrypt(ek, m, self._H(r+id.to_bytes(1)+hash))
+                c = self._k_pke_encrypt(ek, m, self._H(r+id.to_bytes(1, 'big')+hash))
             except ValueError as e:
                 raise ValueError(f"Validation of encapsulation key failed: {e = }")
             clist.append(c)
@@ -483,7 +483,7 @@ class ML_KEM:
         ek_pke = dk[384 * self.k : 768 * self.k + 32]
         #z = dk[768 * self.k + 64 :]
         #K_bar = self._J(z + c)
-        c_prime = self._k_pke_encrypt(ek_pke, m_prime, self._H(r_prime+id.to_bytes(1)+hash))
+        c_prime = self._k_pke_encrypt(ek_pke, m_prime, self._H(r_prime+id.to_bytes(1, 'big')+hash))
         # we need to identity failed ctxt in our application (discard SHAKE garbage)
         #return (b'', select_bytes(K_bar, K_prime, c == c_prime))[c == c_prime]
         return c == c_prime

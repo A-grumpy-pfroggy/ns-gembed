@@ -651,10 +651,10 @@ def metadata_check(metadata_pixel, aes_key, id):
     for j in range(16):
         enc_metadata[j] = (g_vec @ metadata_pixel[j*8:(j+1)*8])%256
     metadata = decrypt_metadata(enc_metadata, aes_key, id)
-    beta = int.from_bytes(metadata[11:12])
-    ell = int.from_bytes(metadata[12:13])
-    err_count = int.from_bytes(metadata[13:14]) # quick convert, as max err is 127
-    failed_master = int.from_bytes(metadata[14:16]) # quick convert, assume sign bit is 0
+    beta = int.from_bytes(metadata[11:12], 'big')
+    ell = int.from_bytes(metadata[12:13], 'big')
+    err_count = int.from_bytes(metadata[13:14], 'big') # quick convert, as max err is 127
+    failed_master = int.from_bytes(metadata[14:16], 'big') # quick convert, assume sign bit is 0
     # oob value, or the target chunk is marked as failure
     if failed_master >= 1 << master_dup or failed_master < 0 or failed_master >> id & 1 != 0 or \
     beta < 2 or beta > max_beta or ell < 0 or ell > max_ell or err_count < 0 or err_count > 127:
@@ -774,18 +774,18 @@ def stego_extract(raw):
             continue
         # Metadata passed sanity check, but it might be incorrect due to wrong AES key
         # Compute CCA metadata size
-        beta = int.from_bytes(metadata[11:12])
-        ell = int.from_bytes(metadata[12:13])
-        err_count = int.from_bytes(metadata[13:14])
-        failed_master = int.from_bytes(metadata[14:16])
-        use_combined_meta = int.from_bytes(metadata[4:5]) == 1
+        beta = int.from_bytes(metadata[11:12], 'big')
+        ell = int.from_bytes(metadata[12:13], 'big')
+        err_count = int.from_bytes(metadata[13:14], 'big')
+        failed_master = int.from_bytes(metadata[14:16], 'big')
+        use_combined_meta = int.from_bytes(metadata[4:5], 'big') == 1
         num_of_g_chunks = num_pixel_main // ell
         num_of_bits_per_g = math.floor(ell * math.log2(beta))
         ecc_perm = load_eccperm(num_of_g_chunks, num_of_bits_per_g)
         ecc_perm_bit_loc = find_ecc_perm_bit_loc(num_of_g_chunks, num_of_bits_per_g, ecc_perm)
         ecc_msg_len = 255 - 2*err_count
         if use_combined_meta:
-            combined_meta_len = int.from_bytes(metadata[5:8])
+            combined_meta_len = int.from_bytes(metadata[5:8], 'big')
             combined_meta_has_compressed = True
             if combined_meta_len == 0:
                 combined_meta_has_compressed = False
@@ -793,14 +793,14 @@ def stego_extract(raw):
                 if combined_meta_len <= 0:
                     continue
         else:
-            img_meta_len = int.from_bytes(metadata[5:8])
+            img_meta_len = int.from_bytes(metadata[5:8], 'big')
             img_meta_has_compressed = True
             if img_meta_len == 0:
                 img_meta_has_compressed = False
                 img_meta_len = ((master_dup - failed_master.bit_count()) * metadata_offset) * 2
                 if img_meta_len <= 0:
                     continue
-            s_meta_len = int.from_bytes(metadata[8:11])
+            s_meta_len = int.from_bytes(metadata[8:11], 'big')
             s_meta_has_compressed = True
             if s_meta_len == 0:
                 s_meta_has_compressed = False
@@ -874,7 +874,7 @@ def stego_extract(raw):
         if cca_check(failed_master, img_meta, s_meta, master_loc, possible_master_count, pixel_id, stego_img, aes_key):
             print("CCA check passed")
             master_dec_success = True
-            filesize = int.from_bytes(metadata[:4])
+            filesize = int.from_bytes(metadata[:4], 'big')
             break
         else:
             print("CCA check failed. Need to try another master chunk")
